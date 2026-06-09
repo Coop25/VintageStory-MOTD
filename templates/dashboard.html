@@ -142,14 +142,6 @@
       text-transform: uppercase;
     }
 
-    .flash {
-      padding: 14px 16px;
-      border: 1px solid var(--line);
-      border-left: 4px solid var(--accent-strong);
-      background: var(--panel-muted);
-      border-radius: var(--radius-sm);
-    }
-
     .layout {
       min-height: 0;
       display: grid;
@@ -261,10 +253,15 @@
       gap: 16px;
     }
 
-    .schedule-grid {
+    .schedule-row {
       display: grid;
-      grid-template-columns: minmax(220px, 0.8fr);
-      gap: 14px;
+      grid-template-columns: minmax(180px, 220px) 1fr;
+      gap: 18px;
+      align-items: end;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--panel-muted);
     }
 
     .field {
@@ -272,22 +269,66 @@
       gap: 8px;
     }
 
-    .autosave-status {
-      min-height: 20px;
+    .schedule-sidecopy {
+      display: grid;
+      gap: 8px;
+      align-content: center;
+    }
+
+    .schedule-sidecopy p {
       color: var(--text-muted);
-      font-size: 0.9rem;
+      font-size: 0.92rem;
+      line-height: 1.5;
     }
 
-    .autosave-status[data-state="saving"] {
+    .schedule-note {
+      color: var(--text-muted);
+      font-size: 0.92rem;
+    }
+
+    .toast-rail {
+      position: fixed;
+      top: 18px;
+      right: 18px;
+      z-index: 30;
+      display: grid;
+      gap: 10px;
+      pointer-events: none;
+    }
+
+    .toast {
+      min-width: min(360px, calc(100vw - 36px));
+      max-width: 420px;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(29, 29, 29, 0.96);
+      box-shadow: var(--shadow);
       color: var(--text);
+      opacity: 0;
+      transform: translateY(-6px);
+      transition: opacity 160ms ease, transform 160ms ease;
     }
 
-    .autosave-status[data-state="saved"] {
-      color: #9fd4d4;
+    .toast.is-visible {
+      opacity: 1;
+      transform: translateY(0);
     }
 
-    .autosave-status[data-state="error"] {
-      color: #f0c7c7;
+    .toast[data-state="saved"] {
+      border-left: 3px solid #9fd4d4;
+    }
+
+    .toast[data-state="saving"] {
+      border-left: 3px solid var(--accent-strong);
+    }
+
+    .toast[data-state="error"] {
+      border-left: 3px solid #f0c7c7;
+    }
+
+    .toast[data-state="info"] {
+      border-left: 3px solid var(--accent-strong);
     }
 
     .field-label {
@@ -499,10 +540,13 @@
 
     @media (max-width: 980px) {
       .layout,
-      .schedule-grid,
       .topbar {
         grid-template-columns: 1fr;
         display: grid;
+      }
+
+      .schedule-row {
+        grid-template-columns: 1fr;
       }
 
       .status-strip {
@@ -543,10 +587,23 @@
         grid-template-columns: 1fr;
       }
 
+      .toast-rail {
+        top: auto;
+        right: 14px;
+        bottom: 14px;
+        left: 14px;
+      }
+
+      .toast {
+        min-width: 0;
+        max-width: none;
+      }
+
     }
   </style>
 </head>
 <body>
+  <div class="toast-rail" id="toast_rail"></div>
   <main class="app">
     <header class="topbar">
       <div class="title-block">
@@ -567,10 +624,6 @@
         {{ end }}
       </div>
     </header>
-
-    {{ if .Flash }}
-    <div class="flash">{{ .Flash }}</div>
-    {{ end }}
 
     <section class="panel panel-alt status-strip">
       <div class="status-lead">
@@ -606,18 +659,14 @@
           </div>
 
           <form class="stack" method="post" action="/settings">
-            <div class="schedule-grid">
+            <div class="schedule-row">
               <label class="field">
                 <span class="field-label">Run time (your local time)</span>
                 <input type="time" id="schedule_time" name="schedule_time" required>
               </label>
-            </div>
-
-            <input type="hidden" id="browser_timezone" name="browser_timezone" value="">
-
-            <div class="stack">
-              <div class="field">
-                <span class="field-label">Quick presets</span>
+              <div class="schedule-sidecopy">
+                <span class="field-label">Schedule</span>
+                <p id="timezone_hint">Times are shown in your local timezone.</p>
                 <div class="presets">
                   <button class="preset" type="button" data-time="06:00">6:00 AM</button>
                   <button class="preset" type="button" data-time="07:00">7:00 AM</button>
@@ -625,10 +674,9 @@
                   <button class="preset" type="button" data-time="09:00">9:00 AM</button>
                 </div>
               </div>
-              <p class="helper" id="timezone_hint">Times are shown in your local timezone.</p>
             </div>
 
-            <div class="autosave-status" id="autosave_status" aria-live="polite"></div>
+            <input type="hidden" id="browser_timezone" name="browser_timezone" value="">
 
             <div class="message-editor">
               <div class="panel-header">
@@ -666,13 +714,16 @@
       const messageList = document.getElementById('message_list');
       const hiddenMessages = document.getElementById('messages');
       const settingsForm = hiddenMessages.form;
-      const autosaveStatus = document.getElementById('autosave_status');
+      const toastRail = document.getElementById('toast_rail');
       const detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
       const storedUtcHour = {{ .Settings.Hour }};
       const storedUtcMinute = {{ .Settings.Minute }};
+      const initialFlash = {{ if .Flash }}{{ printf "%q" .Flash }}{{ else }}''{{ end }};
       let messages = {{ .MessagesJSON }};
       let saveTimer = null;
       let saveCounter = 0;
+      let activeToast = null;
+      let toastTimer = null;
 
       browserTimezoneInput.value = detectedTimezone;
 
@@ -689,14 +740,42 @@
         hiddenMessages.value = messages.join('\n');
       }
 
-      function setAutosaveStatus(state, text) {
-        autosaveStatus.dataset.state = state;
-        autosaveStatus.textContent = text;
+      function showToast(state, text, options) {
+        const nextOptions = options || {};
+
+        if (!text) {
+          if (activeToast) {
+            activeToast.classList.remove('is-visible');
+          }
+          return;
+        }
+
+        window.clearTimeout(toastTimer);
+
+        if (!activeToast) {
+          activeToast = document.createElement('div');
+          activeToast.className = 'toast';
+          toastRail.appendChild(activeToast);
+        }
+
+        activeToast.dataset.state = state;
+        activeToast.textContent = text;
+        activeToast.classList.add('is-visible');
+
+        if (nextOptions.persistent) {
+          return;
+        }
+
+        toastTimer = window.setTimeout(function () {
+          if (activeToast) {
+            activeToast.classList.remove('is-visible');
+          }
+        }, nextOptions.duration || 2200);
       }
 
       function queueAutosave() {
         window.clearTimeout(saveTimer);
-        setAutosaveStatus('saving', 'Saving...');
+        showToast('saving', 'Saving changes...', { persistent: true });
         saveTimer = window.setTimeout(saveSettings, 350);
       }
 
@@ -704,7 +783,7 @@
         syncMessages();
 
         if (messages.length === 0) {
-          setAutosaveStatus('error', 'Add at least one welcome message.');
+          showToast('error', 'Add at least one welcome message.', { duration: 2600 });
           return;
         }
 
@@ -725,11 +804,11 @@
           }
 
           if (requestID === saveCounter) {
-            setAutosaveStatus('saved', 'Saved');
+            showToast('saved', 'Saved', { duration: 1400 });
           }
         } catch (error) {
           if (requestID === saveCounter) {
-            setAutosaveStatus('error', 'Could not save changes.');
+            showToast('error', 'Could not save changes.', { duration: 2600 });
           }
         }
       }
@@ -780,6 +859,23 @@
 
       scheduleInput.addEventListener('input', function () {
         queueAutosave();
+      });
+
+      function openTimePicker() {
+        if (typeof scheduleInput.showPicker === 'function') {
+          try {
+            scheduleInput.showPicker();
+          } catch (error) {
+          }
+        }
+      }
+
+      scheduleInput.addEventListener('focus', function () {
+        openTimePicker();
+      });
+
+      scheduleInput.addEventListener('click', function () {
+        openTimePicker();
       });
 
       function renderMessages() {
@@ -940,7 +1036,9 @@
 
       syncMessages();
       renderMessages();
-      setAutosaveStatus('', 'Changes save automatically.');
+      if (initialFlash) {
+        showToast('info', initialFlash, { duration: 2600 });
+      }
     }());
   </script>
 </body>

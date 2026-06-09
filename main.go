@@ -21,7 +21,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -824,21 +823,14 @@ func isHTTPS(rawURL string) bool {
 
 func parseScheduleTime(raw string) (int, int, error) {
 	raw = strings.TrimSpace(raw)
-	parts := strings.Split(raw, ":")
-	if len(parts) != 2 {
-		return 0, 0, errors.New("time must be HH:MM")
+	for _, layout := range []string{"15:04", "15:04:05"} {
+		parsed, err := time.Parse(layout, raw)
+		if err == nil {
+			return parsed.Hour(), parsed.Minute(), nil
+		}
 	}
 
-	hour, err := strconv.Atoi(parts[0])
-	if err != nil || hour < 0 || hour > 23 {
-		return 0, 0, errors.New("invalid hour")
-	}
-	minute, err := strconv.Atoi(parts[1])
-	if err != nil || minute < 0 || minute > 59 {
-		return 0, 0, errors.New("invalid minute")
-	}
-
-	return hour, minute, nil
+	return 0, 0, errors.New("time must be HH:MM or HH:MM:SS")
 }
 
 func convertLocalScheduleToUTC(hour, minute int, timezone string) (int, int, error) {

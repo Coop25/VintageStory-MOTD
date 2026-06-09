@@ -1,12 +1,8 @@
 services:
   motd-changer:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/coop25/vintagestory-motd:latest
     container_name: vintage-story-motd-changer
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
       MOTD_LISTEN_ADDR: ${MOTD_LISTEN_ADDR}
       MOTD_REMOTE_ENDPOINT: ${MOTD_REMOTE_ENDPOINT}
