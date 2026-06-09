@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	_ "time/tzdata"
 
 	"golang.org/x/oauth2"
 )
