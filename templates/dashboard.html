@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vintage Story MOTD Changer</title>
+  <style>
+    :root {
+      --bg: #222222;
+      --panel: #2a2a2a;
+      --panel-alt: #044343;
+      --panel-muted: #1d1d1d;
+      --line: rgba(228, 228, 228, 0.1);
+      --line-strong: rgba(228, 228, 228, 0.18);
+      --text: #e4e4e4;
+      --text-muted: rgba(228, 228, 228, 0.68);
+      --accent: #045757;
+      --accent-strong: #0a6d6d;
+      --danger: #8f4b4b;
+      --radius: 14px;
+      --radius-sm: 10px;
+      --shadow: 0 12px 36px rgba(0, 0, 0, 0.22);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      min-height: 100%;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .app {
+      min-height: 100vh;
+      padding: 24px;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 20px;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 20px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .title-block {
+      max-width: 760px;
+    }
+
+    .kicker {
+      margin: 0 0 10px;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3, p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 4vw, 3.25rem);
+      line-height: 1.02;
+      letter-spacing: -0.03em;
+      font-weight: 700;
+    }
+
+    .subtitle {
+      margin-top: 10px;
+      max-width: 62ch;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    .identity {
+      min-width: 280px;
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel-muted);
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 14px;
+    }
+
+    .identity-label {
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .identity strong {
+      display: block;
+      margin-top: 8px;
+      font-size: 1rem;
+      line-height: 1.4;
+    }
+
+    .identity-copy {
+      text-align: right;
+    }
+
+    .identity-avatar,
+    .identity-avatar-fallback {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      flex: 0 0 44px;
+    }
+
+    .identity-avatar {
+      display: block;
+      object-fit: cover;
+      border: 1px solid var(--line-strong);
+      background: #111111;
+    }
+
+    .identity-avatar-fallback {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--line-strong);
+      background: var(--accent);
+      color: var(--text);
+      font-size: 0.95rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .flash {
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--accent-strong);
+      background: var(--panel-muted);
+      border-radius: var(--radius-sm);
+    }
+
+    .layout {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 20px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .panel-alt {
+      background: var(--panel-alt);
+    }
+
+    .status-strip {
+      display: grid;
+      grid-template-columns: minmax(220px, 1.1fr) repeat(2, minmax(180px, 0.9fr)) auto;
+      gap: 0;
+      overflow: hidden;
+    }
+
+    .status-strip > div,
+    .status-strip > section {
+      min-width: 0;
+      padding: 18px 20px;
+      border-right: 1px solid var(--line);
+    }
+
+    .status-strip > :last-child {
+      border-right: 0;
+    }
+
+    .status-lead {
+      display: grid;
+      gap: 6px;
+      align-content: center;
+    }
+
+    .status-lead p,
+    .status-meta span {
+      color: var(--text-muted);
+    }
+
+    .status-meta {
+      display: grid;
+      gap: 8px;
+      align-content: center;
+    }
+
+    .status-meta span {
+      display: block;
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .status-meta strong {
+      display: block;
+      font-size: 0.96rem;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+
+    .status-strip-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: flex-end;
+      background: rgba(0, 0, 0, 0.08);
+    }
+
+    .panel-body {
+      padding: 22px;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .panel-header p,
+    .muted,
+    .field-label,
+    .helper,
+    li {
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
+
+    h2 {
+      font-size: 1.15rem;
+      letter-spacing: -0.02em;
+    }
+
+    h3 {
+      font-size: 1rem;
+    }
+
+    .stack {
+      display: grid;
+      gap: 16px;
+    }
+
+    .schedule-grid {
+      display: grid;
+      grid-template-columns: minmax(220px, 0.8fr);
+      gap: 14px;
+    }
+
+    .field {
+      display: grid;
+      gap: 8px;
+    }
+
+    .autosave-status {
+      min-height: 20px;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    .autosave-status[data-state="saving"] {
+      color: var(--text);
+    }
+
+    .autosave-status[data-state="saved"] {
+      color: #9fd4d4;
+    }
+
+    .autosave-status[data-state="error"] {
+      color: #f0c7c7;
+    }
+
+    .field-label {
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+
+    input,
+    textarea,
+    button {
+      font: inherit;
+    }
+
+    input,
+    textarea {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: #1f1f1f;
+      color: var(--text);
+      outline: none;
+      transition: border-color 120ms ease, background 120ms ease;
+    }
+
+    input:focus,
+    textarea:focus {
+      border-color: var(--accent-strong);
+      background: #191919;
+    }
+
+    textarea {
+      min-height: 96px;
+      resize: vertical;
+    }
+
+    button {
+      padding: 12px 14px;
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+    }
+
+    .button-primary {
+      background: var(--accent);
+      color: var(--text);
+    }
+
+    .button-primary:hover {
+      background: var(--accent-strong);
+    }
+
+    .button-secondary {
+      background: transparent;
+      color: var(--text);
+      border-color: var(--line-strong);
+    }
+
+    .button-secondary:hover {
+      background: rgba(228, 228, 228, 0.05);
+    }
+
+    .button-danger {
+      background: transparent;
+      color: #f0c7c7;
+      border-color: rgba(240, 199, 199, 0.18);
+    }
+
+    .button-danger:hover {
+      background: rgba(143, 75, 75, 0.22);
+    }
+
+    .toolbar,
+    .status-actions,
+    .card-actions,
+    .presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .preset {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--line-strong);
+    }
+
+    .preset:hover {
+      background: rgba(228, 228, 228, 0.05);
+    }
+
+    .message-editor {
+      display: grid;
+      gap: 16px;
+    }
+
+    .composer,
+    .message-card,
+    .metric,
+    .allowed-list li {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--panel-muted);
+    }
+
+    .composer,
+    .message-card,
+    .metric {
+      padding: 16px;
+    }
+
+    .composer {
+      gap: 18px;
+    }
+
+    .composer-actions {
+      display: flex;
+      justify-content: stretch;
+      align-items: center;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+    }
+
+    .composer-actions .button-primary {
+      width: 100%;
+    }
+
+    .message-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .message-card {
+      gap: 12px;
+      display: grid;
+    }
+
+    .message-text {
+      white-space: pre-wrap;
+      line-height: 1.6;
+    }
+
+    .message-card textarea {
+      min-height: 96px;
+    }
+
+    .message-card-head {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      min-height: 20px;
+    }
+
+    .card-corner-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .icon-button {
+      width: 32px;
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-muted);
+    }
+
+    .icon-button:hover {
+      background: rgba(228, 228, 228, 0.05);
+      color: var(--text);
+    }
+
+    .icon-button-danger {
+      color: #f0c7c7;
+      border-color: rgba(240, 199, 199, 0.18);
+    }
+
+    .icon-button-danger:hover {
+      background: rgba(143, 75, 75, 0.22);
+    }
+
+    .icon-button svg {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
+    }
+
+    .metric span {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 0.98rem;
+      line-height: 1.5;
+      word-break: break-word;
+    }
+
+    @media (max-width: 980px) {
+      .layout,
+      .schedule-grid,
+      .topbar {
+        grid-template-columns: 1fr;
+        display: grid;
+      }
+
+      .status-strip {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .status-strip-actions {
+        grid-column: 1 / -1;
+        justify-content: flex-start;
+      }
+
+      .identity {
+        justify-content: flex-start;
+      }
+
+      .identity-copy {
+        text-align: left;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .app {
+        padding: 14px;
+      }
+
+      .panel-body {
+        padding: 16px;
+      }
+
+      .toolbar,
+      .status-actions,
+      .card-actions,
+      .presets {
+        display: grid;
+      }
+
+      .status-strip {
+        grid-template-columns: 1fr;
+      }
+
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="title-block">
+        <p class="kicker">Vintage Story MOTD manager</p>
+        <h1>Schedule a daily welcome message rotation without babysitting it.</h1>
+        <p class="subtitle">Manage the run time, timezone, and message pool from one place. The updater fetches the current server config, changes only `WelcomeMessage`, and writes the full payload back.</p>
+      </div>
+      <div class="identity">
+        <div class="identity-copy">
+          <div class="identity-label">Signed in</div>
+          <strong>{{ .User.Username }}</strong>
+          <div class="muted">{{ .User.ID }}</div>
+        </div>
+        {{ if .AvatarURL }}
+        <img class="identity-avatar" src="{{ .AvatarURL }}" alt="{{ .User.Username }} avatar">
+        {{ else }}
+        <div class="identity-avatar-fallback">{{ .User.Username | printf "%.1s" }}</div>
+        {{ end }}
+      </div>
+    </header>
+
+    {{ if .Flash }}
+    <div class="flash">{{ .Flash }}</div>
+    {{ end }}
+
+    <section class="panel panel-alt status-strip">
+      <div class="status-lead">
+        <h2>Run status</h2>
+        <p>Recent activity and manual controls.</p>
+      </div>
+      <div class="status-meta">
+        <span>Last run</span>
+        <strong>{{ if .Settings.LastRunAt }}{{ .Settings.LastRunAt }}{{ else }}No run recorded yet.{{ end }}</strong>
+      </div>
+      <div class="status-meta">
+        <span>Last message</span>
+        <strong>{{ if .Settings.LastMessage }}{{ .Settings.LastMessage }}{{ else }}None yet.{{ end }}</strong>
+      </div>
+      <section class="status-strip-actions">
+        <form method="post" action="/run-now">
+          <button class="button-primary" type="submit">Run now</button>
+        </form>
+        <form method="post" action="/logout">
+          <button class="button-secondary" type="submit">Log out</button>
+        </form>
+      </section>
+    </section>
+
+    <section class="layout">
+      <section class="panel">
+        <div class="panel-body">
+          <div class="panel-header">
+            <div>
+              <h2>Schedule and messages</h2>
+              <p>Set when the update runs and keep your message pool tidy.</p>
+            </div>
+          </div>
+
+          <form class="stack" method="post" action="/settings">
+            <div class="schedule-grid">
+              <label class="field">
+                <span class="field-label">Run time (your local time)</span>
+                <input type="time" id="schedule_time" name="schedule_time" required>
+              </label>
+            </div>
+
+            <input type="hidden" id="browser_timezone" name="browser_timezone" value="">
+
+            <div class="stack">
+              <div class="field">
+                <span class="field-label">Quick presets</span>
+                <div class="presets">
+                  <button class="preset" type="button" data-time="06:00">6:00 AM</button>
+                  <button class="preset" type="button" data-time="07:00">7:00 AM</button>
+                  <button class="preset" type="button" data-time="08:00">8:00 AM</button>
+                  <button class="preset" type="button" data-time="09:00">9:00 AM</button>
+                </div>
+              </div>
+              <p class="helper" id="timezone_hint">Times are shown in your local timezone.</p>
+            </div>
+
+            <div class="autosave-status" id="autosave_status" aria-live="polite"></div>
+
+            <div class="message-editor">
+              <div class="panel-header">
+                <div>
+                  <h3>Welcome messages</h3>
+                  <p>The message shown to players when they join. Placeholder {0} will be replaced with Player's nickname.</p>
+                </div>
+              </div>
+
+              <div class="composer">
+                <label class="field" for="message_input">
+                  <span class="field-label">New message</span>
+                  <textarea id="message_input" placeholder="Write the next welcome message"></textarea>
+                </label>
+                <div class="composer-actions">
+                  <button class="button-primary" type="button" id="add_message">Add message</button>
+                </div>
+              </div>
+
+              <div id="message_list" class="message-list"></div>
+              <input type="hidden" id="messages" name="messages" value="">
+            </div>
+          </form>
+        </div>
+      </section>
+    </section>
+  </main>
+  <script>
+    (function () {
+      const browserTimezoneInput = document.getElementById('browser_timezone');
+      const timezoneHint = document.getElementById('timezone_hint');
+      const scheduleInput = document.getElementById('schedule_time');
+      const messageInput = document.getElementById('message_input');
+      const addMessageButton = document.getElementById('add_message');
+      const messageList = document.getElementById('message_list');
+      const hiddenMessages = document.getElementById('messages');
+      const settingsForm = hiddenMessages.form;
+      const autosaveStatus = document.getElementById('autosave_status');
+      const detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+      const storedUtcHour = {{ .Settings.Hour }};
+      const storedUtcMinute = {{ .Settings.Minute }};
+      let messages = {{ .MessagesJSON }};
+      let saveTimer = null;
+      let saveCounter = 0;
+
+      browserTimezoneInput.value = detectedTimezone;
+
+      applyLocalSchedule();
+
+      document.querySelectorAll('[data-time]').forEach(function (button) {
+        button.addEventListener('click', function () {
+          scheduleInput.value = button.getAttribute('data-time');
+          queueAutosave();
+        });
+      });
+
+      function syncMessages() {
+        hiddenMessages.value = messages.join('\n');
+      }
+
+      function setAutosaveStatus(state, text) {
+        autosaveStatus.dataset.state = state;
+        autosaveStatus.textContent = text;
+      }
+
+      function queueAutosave() {
+        window.clearTimeout(saveTimer);
+        setAutosaveStatus('saving', 'Saving...');
+        saveTimer = window.setTimeout(saveSettings, 350);
+      }
+
+      async function saveSettings() {
+        syncMessages();
+
+        if (messages.length === 0) {
+          setAutosaveStatus('error', 'Add at least one welcome message.');
+          return;
+        }
+
+        const requestID = ++saveCounter;
+
+        try {
+          const response = await fetch(settingsForm.action, {
+            method: 'POST',
+            headers: {
+              'X-Requested-With': 'fetch'
+            },
+            body: new FormData(settingsForm),
+            credentials: 'same-origin'
+          });
+
+          if (!response.ok) {
+            throw new Error('save failed');
+          }
+
+          if (requestID === saveCounter) {
+            setAutosaveStatus('saved', 'Saved');
+          }
+        } catch (error) {
+          if (requestID === saveCounter) {
+            setAutosaveStatus('error', 'Could not save changes.');
+          }
+        }
+      }
+
+      function applyLocalSchedule() {
+        if (!detectedTimezone) {
+          scheduleInput.value = formatTime(storedUtcHour, storedUtcMinute);
+          if (timezoneHint) {
+            timezoneHint.textContent = 'Browser timezone could not be detected, so the saved UTC time is being shown.';
+          }
+          return;
+        }
+
+        const utcDate = new Date(Date.UTC(2000, 0, 1, storedUtcHour, storedUtcMinute, 0));
+        const parts = new Intl.DateTimeFormat('en-CA', {
+          timeZone: detectedTimezone,
+          hour: '2-digit',
+          minute: '2-digit',
+          hourCycle: 'h23'
+        }).formatToParts(utcDate);
+
+        let localHour = '00';
+        let localMinute = '00';
+
+        parts.forEach(function (part) {
+          if (part.type === 'hour') {
+            localHour = part.value;
+          }
+          if (part.type === 'minute') {
+            localMinute = part.value;
+          }
+        });
+
+        scheduleInput.value = localHour + ':' + localMinute;
+
+        if (timezoneHint) {
+          timezoneHint.textContent = 'Shown in your local timezone: ' + detectedTimezone + '. Stored internally as ' + formatTime(storedUtcHour, storedUtcMinute) + ' UTC.';
+        }
+      }
+
+      function formatTime(hour, minute) {
+        return String(hour).padStart(2, '0') + ':' + String(minute).padStart(2, '0');
+      }
+
+      scheduleInput.addEventListener('change', function () {
+        queueAutosave();
+      });
+
+      scheduleInput.addEventListener('input', function () {
+        queueAutosave();
+      });
+
+      function renderMessages() {
+        messageList.innerHTML = '';
+
+        if (messages.length === 0) {
+          const empty = document.createElement('div');
+          empty.className = 'metric';
+          empty.innerHTML = '<span>Message pool</span><strong>No welcome messages yet. Add one above before saving.</strong>';
+          messageList.appendChild(empty);
+          return;
+        }
+
+        messages.forEach(function (message, index) {
+          const card = document.createElement('article');
+          card.className = 'message-card';
+
+          const head = document.createElement('div');
+          head.className = 'message-card-head';
+
+          const cornerActions = document.createElement('div');
+          cornerActions.className = 'card-corner-actions';
+
+          const body = document.createElement('div');
+          body.className = 'message-text';
+          body.textContent = message;
+
+          const editButton = document.createElement('button');
+          editButton.type = 'button';
+          editButton.className = 'icon-button';
+          editButton.setAttribute('aria-label', 'Edit message');
+          editButton.innerHTML = pencilIcon();
+
+          const deleteButton = document.createElement('button');
+          deleteButton.type = 'button';
+          deleteButton.className = 'icon-button icon-button-danger';
+          deleteButton.setAttribute('aria-label', 'Delete message');
+          deleteButton.innerHTML = trashIcon();
+
+          editButton.addEventListener('click', function () {
+            body.replaceWith(createEditor(message, index));
+            cornerActions.replaceWith(createEditActions(index));
+          });
+
+          deleteButton.addEventListener('click', function () {
+            messages.splice(index, 1);
+            syncMessages();
+            renderMessages();
+            queueAutosave();
+          });
+
+          cornerActions.appendChild(editButton);
+          cornerActions.appendChild(deleteButton);
+          head.appendChild(cornerActions);
+          card.appendChild(head);
+          card.appendChild(body);
+          messageList.appendChild(card);
+        });
+      }
+
+      function createEditor(message, index) {
+        const editor = document.createElement('textarea');
+        editor.value = message;
+        editor.setAttribute('data-edit-index', String(index));
+        return editor;
+      }
+
+      function createEditActions(index) {
+        const actions = document.createElement('div');
+        actions.className = 'card-corner-actions';
+
+        const saveButton = document.createElement('button');
+        saveButton.type = 'button';
+        saveButton.className = 'icon-button';
+        saveButton.setAttribute('aria-label', 'Save edit');
+        saveButton.innerHTML = checkIcon();
+
+        const cancelButton = document.createElement('button');
+        cancelButton.type = 'button';
+        cancelButton.className = 'icon-button';
+        cancelButton.setAttribute('aria-label', 'Cancel edit');
+        cancelButton.innerHTML = closeIcon();
+
+        saveButton.addEventListener('click', function () {
+          const editor = messageList.querySelector('[data-edit-index="' + index + '"]');
+          if (!editor) {
+            return;
+          }
+
+          const nextValue = editor.value.trim();
+          if (!nextValue) {
+            window.alert('Message cannot be empty.');
+            editor.focus();
+            return;
+          }
+
+          messages[index] = nextValue;
+          syncMessages();
+          renderMessages();
+          queueAutosave();
+        });
+
+        cancelButton.addEventListener('click', function () {
+          renderMessages();
+        });
+
+        actions.appendChild(saveButton);
+        actions.appendChild(cancelButton);
+
+        const head = document.createElement('div');
+        head.className = 'message-card-head';
+        head.appendChild(actions);
+        return head;
+      }
+
+      function pencilIcon() {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm17.71-10.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0l-1.96 1.96 3.75 3.75 2.13-2.13z"/></svg>';
+      }
+
+      function trashIcon() {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7h12l-1 14H7L6 7zm3-3h6l1 2h4v2H4V6h4l1-2z"/></svg>';
+      }
+
+      function checkIcon() {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
+      }
+
+      function closeIcon() {
+        return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.3 5.71 12 12l6.3 6.29-1.41 1.41L10.59 13.41 4.29 19.7 2.88 18.29 9.17 12 2.88 5.71 4.29 4.3l6.3 6.29 6.29-6.29z"/></svg>';
+      }
+
+      addMessageButton.addEventListener('click', function () {
+        const nextValue = messageInput.value.trim();
+        if (!nextValue) {
+          messageInput.focus();
+          return;
+        }
+
+        messages.unshift(nextValue);
+        messageInput.value = '';
+        syncMessages();
+        renderMessages();
+        messageInput.focus();
+        queueAutosave();
+      });
+
+      messageInput.addEventListener('keydown', function (event) {
+        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+          event.preventDefault();
+          addMessageButton.click();
+        }
+      });
+
+      settingsForm.addEventListener('submit', function (event) {
+        syncMessages();
+        event.preventDefault();
+      });
+
+      syncMessages();
+      renderMessages();
+      setAutosaveStatus('', 'Changes save automatically.');
+    }());
+  </script>
+</body>
+</html>

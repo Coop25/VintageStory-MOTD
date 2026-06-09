@@ -1,0 +1,23 @@
+services:
+  motd-changer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vintage-story-motd-changer
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MOTD_LISTEN_ADDR: ${MOTD_LISTEN_ADDR}
+      MOTD_REMOTE_ENDPOINT: ${MOTD_REMOTE_ENDPOINT}
+      MOTD_REMOTE_API_KEY: ${MOTD_REMOTE_API_KEY}
+      MOTD_REMOTE_API_SECRET: ${MOTD_REMOTE_API_SECRET}
+      MOTD_DISCORD_CLIENT_ID: ${MOTD_DISCORD_CLIENT_ID}
+      MOTD_DISCORD_CLIENT_SECRET: ${MOTD_DISCORD_CLIENT_SECRET}
+      MOTD_DISCORD_REDIRECT_URL: ${MOTD_DISCORD_REDIRECT_URL}
+      MOTD_SESSION_SECRET: ${MOTD_SESSION_SECRET}
+      MOTD_ALLOWED_DISCORD_IDS: ${MOTD_ALLOWED_DISCORD_IDS}
+    ports:
+      - "8091:8080"
+    volumes:
+      - ./data:/app/data
