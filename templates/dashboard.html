@@ -780,35 +780,43 @@
       }
 
       async function saveSettings() {
-        syncMessages();
-
         if (messages.length === 0) {
           showToast('error', 'Add at least one welcome message.', { duration: 2600 });
           return;
         }
 
         const requestID = ++saveCounter;
+        const payload = {
+          scheduleTime: scheduleInput.value,
+          browserTimezone: browserTimezoneInput.value,
+          messages: messages.slice()
+        };
 
         try {
           const response = await fetch(settingsForm.action, {
             method: 'POST',
             headers: {
-              'X-Requested-With': 'fetch'
+              'Accept': 'application/json',
+              'Content-Type': 'application/json'
             },
-            body: new FormData(settingsForm),
+            body: JSON.stringify(payload),
             credentials: 'same-origin'
           });
 
-          if (!response.ok) {
-            throw new Error('save failed');
+          const result = await response.json().catch(function () {
+            return { ok: false, message: 'Unexpected response from server.' };
+          });
+
+          if (!response.ok || !result.ok) {
+            throw new Error(result.message || 'Could not save changes.');
           }
 
           if (requestID === saveCounter) {
-            showToast('saved', 'Saved', { duration: 1400 });
+            showToast('saved', result.message || 'Saved', { duration: 1400 });
           }
         } catch (error) {
           if (requestID === saveCounter) {
-            showToast('error', 'Could not save changes.', { duration: 2600 });
+            showToast('error', error.message || 'Could not save changes.', { duration: 2600 });
           }
         }
       }
@@ -1030,11 +1038,9 @@
       });
 
       settingsForm.addEventListener('submit', function (event) {
-        syncMessages();
         event.preventDefault();
       });
 
-      syncMessages();
       renderMessages();
       if (initialFlash) {
         showToast('info', initialFlash, { duration: 2600 });

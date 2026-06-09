@@ -106,6 +106,17 @@ type dashboardData struct {
 	Flash        string
 }
 
+type settingsSaveRequest struct {
+	ScheduleTime    string   `json:"scheduleTime"`
+	BrowserTimezone string   `json:"browserTimezone"`
+	Messages        []string `json:"messages"`
+}
+
+type settingsSaveResponse struct {
+	OK      bool   `json:"ok"`
+	Message string `json:"message,omitempty"`
+}
+
 func main() {
 	logger := log.New(os.Stdout, "", log.LstdFlags|log.Lshortfile)
 
@@ -646,53 +657,77 @@ func (a *app) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeJSON(w, http.StatusMethodNotAllowed, settingsSaveResponse{
+			OK:      false,
+			Message: "method not allowed",
+		})
 		return
 	}
 	if _, ok := a.requireUser(w, r); !ok {
 		return
 	}
 
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type"))), "application/json") {
+		writeJSON(w, http.StatusUnsupportedMediaType, settingsSaveResponse{
+			OK:      false,
+			Message: "content type must be application/json",
+		})
 		return
 	}
 
-	hour, minute, err := parseScheduleTime(r.FormValue("schedule_time"))
-	if err != nil {
-		http.Error(w, "invalid schedule time", http.StatusBadRequest)
+	var req settingsSaveRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, settingsSaveResponse{
+			OK:      false,
+			Message: "invalid json payload",
+		})
 		return
 	}
-	browserTimezone := strings.TrimSpace(r.FormValue("browser_timezone"))
+
+	hour, minute, err := parseScheduleTime(req.ScheduleTime)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, settingsSaveResponse{
+			OK:      false,
+			Message: "invalid schedule time",
+		})
+		return
+	}
+	browserTimezone := strings.TrimSpace(req.BrowserTimezone)
 	if browserTimezone == "" {
-		http.Error(w, "browser timezone is required", http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, settingsSaveResponse{
+			OK:      false,
+			Message: "browser timezone is required",
+		})
 		return
 	}
 
 	utcHour, utcMinute, err := convertLocalScheduleToUTC(hour, minute, browserTimezone)
 	if err != nil {
-		http.Error(w, "invalid browser timezone", http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, settingsSaveResponse{
+			OK:      false,
+			Message: "invalid browser timezone",
+		})
 		return
 	}
 
-	rawMessages := strings.Split(r.FormValue("messages"), "\n")
 	next := a.store.get()
 	next.Hour = utcHour
 	next.Minute = utcMinute
 	next.Timezone = "UTC"
-	next.Messages = rawMessages
+	next.Messages = append([]string(nil), req.Messages...)
 
 	if err := a.store.update(next); err != nil {
-		http.Error(w, "failed to save settings", http.StatusInternalServerError)
+		writeJSON(w, http.StatusInternalServerError, settingsSaveResponse{
+			OK:      false,
+			Message: "failed to save settings",
+		})
 		return
 	}
 
-	if r.Header.Get("X-Requested-With") == "fetch" {
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	http.Redirect(w, r, "/?flash="+url.QueryEscape("Settings saved."), http.StatusFound)
+	writeJSON(w, http.StatusOK, settingsSaveResponse{
+		OK:      true,
+		Message: "saved",
+	})
 }
 
 func (a *app) handleRunNow(w http.ResponseWriter, r *http.Request) {
@@ -787,6 +822,14 @@ func discordAvatarURL(user discordUser) string {
 		return ""
 	}
 	return fmt.Sprintf("https://cdn.discordapp.com/avatars/%s/%s.png?size=128", user.ID, user.Avatar)
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		http.Error(w, "failed to encode json response", http.StatusInternalServerError)
+	}
 }
 
 func (a *app) renderTemplate(w http.ResponseWriter, name string, data any) {
