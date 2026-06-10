@@ -39,35 +39,54 @@
 
     .app {
       min-height: 100vh;
-      padding: 24px;
       display: grid;
-      grid-template-rows: auto 1fr;
+      grid-template-rows: auto auto 1fr;
       gap: 20px;
     }
 
     .topbar {
       display: flex;
-      justify-content: stretch;
-      align-items: stretch;
+      justify-content: space-between;
+      align-items: center;
       gap: 20px;
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(12, 12, 12, 0.92);
     }
 
     h2, h3, p {
       margin: 0;
     }
 
-    .topbar .status-strip {
-      flex: 1 1 auto;
+    .topbar-schedule {
       min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .topbar-schedule .field {
+      min-width: 220px;
+      margin: 0;
+    }
+
+    .topbar-copy {
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+    }
+
+    .topbar-copy .field-label,
+    .topbar-copy p {
+      margin: 0;
     }
 
     .identity {
-      flex: 0 0 280px;
-      min-width: 280px;
-      padding: 16px 18px;
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      background: var(--panel-muted);
+      min-width: 0;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
       display: flex;
       align-items: center;
       justify-content: flex-end;
@@ -124,6 +143,7 @@
       display: grid;
       grid-template-columns: minmax(0, 1fr);
       gap: 20px;
+      padding: 0 24px 24px;
     }
 
     .panel {
@@ -138,17 +158,25 @@
     }
 
     .status-strip {
+      margin: 0 24px;
       display: grid;
-      grid-template-columns: minmax(220px, 1.1fr) repeat(2, minmax(180px, 0.9fr)) auto;
+      grid-template-columns: minmax(180px, auto) repeat(2, minmax(220px, 1fr)) auto;
+      align-items: center;
       gap: 0;
       overflow: hidden;
+      padding: 0;
+      border-radius: 16px;
+      background:
+        linear-gradient(180deg, rgba(16, 111, 110, 0.22), rgba(16, 111, 110, 0.1)),
+        rgba(18, 28, 30, 0.9);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
     }
 
     .status-strip > div,
     .status-strip > section {
       min-width: 0;
-      padding: 18px 20px;
-      border-right: 1px solid var(--line);
+      padding: 9px 12px;
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
     }
 
     .status-strip > :last-child {
@@ -156,9 +184,9 @@
     }
 
     .status-lead {
-      display: grid;
-      gap: 6px;
-      align-content: center;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
     .status-lead p,
@@ -166,15 +194,33 @@
       color: var(--text-muted);
     }
 
+    .status-lead h2 {
+      font-size: 0.95rem;
+      letter-spacing: -0.02em;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(19, 150, 145, 0.22);
+      color: #b8ece8;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
     .status-meta {
       display: grid;
-      gap: 8px;
+      gap: 2px;
       align-content: center;
     }
 
     .status-meta span {
       display: block;
-      font-size: 0.78rem;
+      font-size: 0.72rem;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.08em;
@@ -182,8 +228,8 @@
 
     .status-meta strong {
       display: block;
-      font-size: 0.96rem;
-      line-height: 1.45;
+      font-size: 0.86rem;
+      line-height: 1.25;
       word-break: break-word;
     }
 
@@ -193,6 +239,11 @@
       align-items: center;
       justify-content: flex-end;
       background: rgba(0, 0, 0, 0.08);
+    }
+
+    .status-strip-actions .button-primary {
+      padding: 8px 14px;
+      border-radius: 999px;
     }
 
     .panel-body {
@@ -230,32 +281,9 @@
       gap: 16px;
     }
 
-    .schedule-row {
-      display: grid;
-      grid-template-columns: minmax(180px, 220px) 1fr;
-      gap: 18px;
-      align-items: end;
-      padding: 14px 16px;
-      border: 1px solid var(--line);
-      border-radius: var(--radius-sm);
-      background: var(--panel-muted);
-    }
-
     .field {
       display: grid;
       gap: 8px;
-    }
-
-    .schedule-sidecopy {
-      display: grid;
-      gap: 8px;
-      align-content: center;
-    }
-
-    .schedule-sidecopy p {
-      color: var(--text-muted);
-      font-size: 0.92rem;
-      line-height: 1.5;
     }
 
     .schedule-note {
@@ -381,21 +409,10 @@
 
     .toolbar,
     .status-actions,
-    .card-actions,
-    .presets {
+    .card-actions {
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
-    }
-
-    .preset {
-      background: transparent;
-      color: var(--text);
-      border: 1px solid var(--line-strong);
-    }
-
-    .preset:hover {
-      background: rgba(228, 228, 228, 0.05);
     }
 
     .message-editor {
@@ -532,13 +549,22 @@
         display: grid;
       }
 
-      .topbar .status-strip,
-      .identity {
-        min-width: 0;
+      .topbar {
+        padding: 12px 24px;
       }
 
-      .schedule-row {
-        grid-template-columns: 1fr;
+      .topbar-schedule {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .topbar-schedule .field {
+        min-width: 0;
+        width: 100%;
+      }
+
+      .identity {
+        min-width: 0;
       }
 
       .status-strip {
@@ -561,17 +587,28 @@
 
     @media (max-width: 720px) {
       .app {
-        padding: 14px;
+        gap: 14px;
+      }
+
+      .topbar {
+        padding: 12px 14px;
       }
 
       .panel-body {
         padding: 16px;
       }
 
+      .layout {
+        padding: 0 14px 14px;
+      }
+
+      .status-strip {
+        margin: 0 14px;
+      }
+
       .toolbar,
       .status-actions,
-      .card-actions,
-      .presets {
+      .card-actions {
         display: grid;
       }
 
@@ -598,28 +635,16 @@
   <div class="toast-rail" id="toast_rail"></div>
   <main class="app">
     <header class="topbar">
-      <section class="panel panel-alt status-strip">
-        <div class="status-lead">
-          <h2>Run status</h2>
-          <p>Recent activity and manual controls.</p>
+      <div class="topbar-schedule">
+        <label class="field" for="schedule_time">
+          <span class="field-label">Run time</span>
+          <input type="time" id="schedule_time" name="schedule_time" required>
+        </label>
+        <div class="topbar-copy">
+          <span class="field-label">Schedule</span>
+          <p id="timezone_hint">Times are shown in your local timezone.</p>
         </div>
-        <div class="status-meta">
-          <span>Last run</span>
-          <strong>{{ if .Settings.LastRunAt }}{{ .Settings.LastRunAt }}{{ else }}No run recorded yet.{{ end }}</strong>
-        </div>
-        <div class="status-meta">
-          <span>Last message</span>
-          <strong>{{ if .Settings.LastMessage }}{{ .Settings.LastMessage }}{{ else }}None yet.{{ end }}</strong>
-        </div>
-        <section class="status-strip-actions">
-          <form method="post" action="/run-now">
-            <button class="button-primary" type="submit">Run now</button>
-          </form>
-          <form method="post" action="/logout">
-            <button class="button-secondary" type="submit">Log out</button>
-          </form>
-        </section>
-      </section>
+      </div>
 
       <div class="identity">
         <div class="identity-copy">
@@ -635,34 +660,30 @@
       </div>
     </header>
 
+    <section class="panel panel-alt status-strip">
+      <div class="status-lead">
+        <span class="status-pill">Status</span>
+        <h2>Run status</h2>
+      </div>
+      <div class="status-meta">
+        <span>Last run</span>
+        <strong>{{ if .Settings.LastRunAt }}{{ .Settings.LastRunAt }}{{ else }}No run recorded yet.{{ end }}</strong>
+      </div>
+      <div class="status-meta">
+        <span>Last message</span>
+        <strong>{{ if .Settings.LastMessage }}{{ .Settings.LastMessage }}{{ else }}None yet.{{ end }}</strong>
+      </div>
+      <section class="status-strip-actions">
+        <form method="post" action="/run-now">
+          <button class="button-primary" type="submit">Run now</button>
+        </form>
+      </section>
+    </section>
+
     <section class="layout">
       <section class="panel">
         <div class="panel-body">
-          <div class="panel-header">
-            <div>
-              <h2>Schedule and messages</h2>
-              <p>Set when the update runs and keep your message pool tidy.</p>
-            </div>
-          </div>
-
           <form class="stack" method="post" action="/settings">
-            <div class="schedule-row">
-              <label class="field">
-                <span class="field-label">Run time (your local time)</span>
-                <input type="time" id="schedule_time" name="schedule_time" required>
-              </label>
-              <div class="schedule-sidecopy">
-                <span class="field-label">Schedule</span>
-                <p id="timezone_hint">Times are shown in your local timezone.</p>
-                <div class="presets">
-                  <button class="preset" type="button" data-time="06:00">6:00 AM</button>
-                  <button class="preset" type="button" data-time="07:00">7:00 AM</button>
-                  <button class="preset" type="button" data-time="08:00">8:00 AM</button>
-                  <button class="preset" type="button" data-time="09:00">9:00 AM</button>
-                </div>
-              </div>
-            </div>
-
             <input type="hidden" id="browser_timezone" name="browser_timezone" value="">
 
             <div class="message-editor">
