@@ -53,13 +53,26 @@ type appConfig struct {
 }
 
 type settings struct {
-	Hour           int      `json:"hour"`
-	Minute         int      `json:"minute"`
-	Timezone       string   `json:"timezone"`
-	Messages       []string `json:"messages"`
-	RecentMessages []string `json:"recentMessages,omitempty"`
-	LastRunAt      string   `json:"lastRunAt,omitempty"`
-	LastMessage    string   `json:"lastMessage,omitempty"`
+	Hour           int         `json:"hour"`
+	Minute         int         `json:"minute"`
+	Timezone       string      `json:"timezone"`
+	Messages       messageList `json:"messages"`
+	RecentMessages []string    `json:"recentMessages,omitempty"`
+	LastRunAt      string      `json:"lastRunAt,omitempty"`
+	LastMessage    string      `json:"lastMessage,omitempty"`
+}
+
+type messageEntry struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
+}
+
+type messageList []messageEntry
+
+type settingsSaveOperation struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+	Text string `json:"text,omitempty"`
 }
 
 type settingsStore struct {
@@ -107,14 +120,15 @@ type dashboardData struct {
 }
 
 type settingsSaveRequest struct {
-	ScheduleTime    string   `json:"scheduleTime"`
-	BrowserTimezone string   `json:"browserTimezone"`
-	Messages        []string `json:"messages"`
+	ScheduleTime    string                  `json:"scheduleTime"`
+	BrowserTimezone string                  `json:"browserTimezone"`
+	Operations      []settingsSaveOperation `json:"operations"`
 }
 
 type settingsSaveResponse struct {
-	OK      bool   `json:"ok"`
-	Message string `json:"message,omitempty"`
+	OK       bool     `json:"ok"`
+	Message  string   `json:"message,omitempty"`
+	Settings settings `json:"settings"`
 }
 
 func main() {
@@ -244,7 +258,7 @@ func newSettingsStore(path string) (*settingsStore, error) {
 			Hour:     8,
 			Minute:   0,
 			Timezone: "UTC",
-			Messages: []string{"Welcome to the server."},
+			Messages: messageList{{ID: newMessageID(), Text: "Welcome to the server."}},
 		},
 	}
 
@@ -288,6 +302,26 @@ func (s *settingsStore) update(next settings) error {
 	return s.saveLocked()
 }
 
+func (s *settingsStore) applySave(utcHour, utcMinute int, operations []settingsSaveOperation) (settings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.data.Hour = utcHour
+	s.data.Minute = utcMinute
+	s.data.Timezone = "UTC"
+
+	for _, op := range operations {
+		s.applyMessageOperationLocked(op)
+	}
+
+	s.normalizeLocked()
+	if err := s.saveLocked(); err != nil {
+		return settings{}, err
+	}
+
+	return cloneSettings(s.data), nil
+}
+
 func (s *settingsStore) recordRun(ts time.Time, message string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -312,20 +346,30 @@ func (s *settingsStore) normalizeLocked() {
 	}
 
 	filtered := s.data.Messages[:0]
+	seen := make(map[string]struct{}, len(s.data.Messages))
 	for _, msg := range s.data.Messages {
-		msg = strings.TrimSpace(msg)
-		if msg != "" {
-			filtered = append(filtered, msg)
+		msg.ID = strings.TrimSpace(msg.ID)
+		msg.Text = strings.TrimSpace(msg.Text)
+		if msg.Text == "" {
+			continue
 		}
+		if msg.ID == "" {
+			msg.ID = newMessageID()
+		}
+		if _, ok := seen[msg.ID]; ok {
+			msg.ID = newMessageID()
+		}
+		seen[msg.ID] = struct{}{}
+		filtered = append(filtered, msg)
 	}
 	if len(filtered) == 0 {
-		filtered = []string{"Welcome to the server."}
+		filtered = messageList{{ID: newMessageID(), Text: "Welcome to the server."}}
 	}
 	s.data.Messages = filtered
 
 	allowed := make(map[string]struct{}, len(s.data.Messages))
 	for _, msg := range s.data.Messages {
-		allowed[msg] = struct{}{}
+		allowed[msg.Text] = struct{}{}
 	}
 
 	recent := s.data.RecentMessages[:0]
@@ -368,9 +412,77 @@ func (s *settingsStore) saveLocked() error {
 	return os.WriteFile(s.path, payload, 0o644)
 }
 
+func (s *settingsStore) applyMessageOperationLocked(op settingsSaveOperation) {
+	id := strings.TrimSpace(op.ID)
+	switch strings.ToLower(strings.TrimSpace(op.Type)) {
+	case "delete":
+		if id == "" {
+			return
+		}
+		for i, msg := range s.data.Messages {
+			if msg.ID != id {
+				continue
+			}
+			s.data.Messages = append(s.data.Messages[:i], s.data.Messages[i+1:]...)
+			return
+		}
+	case "add", "update":
+		text := strings.TrimSpace(op.Text)
+		if text == "" {
+			return
+		}
+		if id == "" {
+			id = newMessageID()
+		}
+		for i, msg := range s.data.Messages {
+			if msg.ID != id {
+				continue
+			}
+			s.data.Messages[i].Text = text
+			return
+		}
+		s.data.Messages = append([]messageEntry{{ID: id, Text: text}}, s.data.Messages...)
+	}
+}
+
+func (m *messageList) UnmarshalJSON(data []byte) error {
+	var entries []messageEntry
+	if err := json.Unmarshal(data, &entries); err == nil {
+		*m = append((*m)[:0], entries...)
+		return nil
+	}
+
+	var legacy []string
+	if err := json.Unmarshal(data, &legacy); err == nil {
+		converted := make([]messageEntry, 0, len(legacy))
+		for _, text := range legacy {
+			text = strings.TrimSpace(text)
+			if text == "" {
+				continue
+			}
+			converted = append(converted, messageEntry{
+				ID:   newMessageID(),
+				Text: text,
+			})
+		}
+		*m = converted
+		return nil
+	}
+
+	return errors.New("invalid messages payload")
+}
+
+func newMessageID() string {
+	buf := make([]byte, 12)
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Sprintf("msg-%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(buf)
+}
+
 func cloneSettings(in settings) settings {
 	out := in
-	out.Messages = append([]string(nil), in.Messages...)
+	out.Messages = append(messageList(nil), in.Messages...)
 	out.RecentMessages = append([]string(nil), in.RecentMessages...)
 	return out
 }
@@ -424,7 +536,7 @@ func (s *scheduler) execute(ctx context.Context) error {
 	return s.store.recordRun(time.Now(), message)
 }
 
-func pickRandomMessage(messages, recent []string) (string, error) {
+func pickRandomMessage(messages messageList, recent []string) (string, error) {
 	if len(messages) == 0 {
 		return "", errors.New("no messages configured")
 	}
@@ -434,7 +546,7 @@ func pickRandomMessage(messages, recent []string) (string, error) {
 		candidates = filterMessages(messages, recent[:min(len(recent), 3)])
 	}
 	if len(candidates) == 0 {
-		candidates = append([]string(nil), messages...)
+		candidates = append([]string(nil), messageTexts(messages)...)
 	}
 
 	max := big.NewInt(int64(len(candidates)))
@@ -445,20 +557,28 @@ func pickRandomMessage(messages, recent []string) (string, error) {
 	return candidates[n.Int64()], nil
 }
 
-func filterMessages(messages, excluded []string) []string {
+func filterMessages(messages messageList, excluded []string) []string {
 	blocked := make(map[string]struct{}, len(excluded))
 	for _, msg := range excluded {
 		blocked[msg] = struct{}{}
 	}
 
 	var filtered []string
-	for _, msg := range messages {
+	for _, msg := range messageTexts(messages) {
 		if _, ok := blocked[msg]; ok {
 			continue
 		}
 		filtered = append(filtered, msg)
 	}
 	return filtered
+}
+
+func messageTexts(messages messageList) []string {
+	texts := make([]string, 0, len(messages))
+	for _, msg := range messages {
+		texts = append(texts, msg.Text)
+	}
+	return texts
 }
 
 func min(a, b int) int {
@@ -710,13 +830,8 @@ func (a *app) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	next := a.store.get()
-	next.Hour = utcHour
-	next.Minute = utcMinute
-	next.Timezone = "UTC"
-	next.Messages = append([]string(nil), req.Messages...)
-
-	if err := a.store.update(next); err != nil {
+	currentSettings, err := a.store.applySave(utcHour, utcMinute, req.Operations)
+	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, settingsSaveResponse{
 			OK:      false,
 			Message: "failed to save settings",
@@ -725,8 +840,9 @@ func (a *app) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, settingsSaveResponse{
-		OK:      true,
-		Message: "saved",
+		OK:       true,
+		Message:  "saved",
+		Settings: currentSettings,
 	})
 }
 

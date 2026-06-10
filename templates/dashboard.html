@@ -41,51 +41,28 @@
       min-height: 100vh;
       padding: 24px;
       display: grid;
-      grid-template-rows: auto auto 1fr;
+      grid-template-rows: auto 1fr;
       gap: 20px;
     }
 
     .topbar {
       display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
+      justify-content: stretch;
+      align-items: stretch;
       gap: 20px;
-      padding-bottom: 18px;
-      border-bottom: 1px solid var(--line);
     }
 
-    .title-block {
-      max-width: 760px;
-    }
-
-    .kicker {
-      margin: 0 0 10px;
-      color: var(--text-muted);
-      font-size: 0.85rem;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-
-    h1, h2, h3, p {
+    h2, h3, p {
       margin: 0;
     }
 
-    h1 {
-      font-size: clamp(2rem, 4vw, 3.25rem);
-      line-height: 1.02;
-      letter-spacing: -0.03em;
-      font-weight: 700;
-    }
-
-    .subtitle {
-      margin-top: 10px;
-      max-width: 62ch;
-      color: var(--text-muted);
-      line-height: 1.6;
+    .topbar .status-strip {
+      flex: 1 1 auto;
+      min-width: 0;
     }
 
     .identity {
+      flex: 0 0 280px;
       min-width: 280px;
       padding: 16px 18px;
       border: 1px solid var(--line);
@@ -467,8 +444,17 @@
       display: grid;
     }
 
+    .message-card-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
     .message-text {
+      flex: 1 1 auto;
+      min-width: 0;
       white-space: pre-wrap;
+      overflow-wrap: anywhere;
       line-height: 1.6;
     }
 
@@ -486,6 +472,7 @@
     .card-corner-actions {
       display: flex;
       gap: 8px;
+      flex: 0 0 auto;
     }
 
     .icon-button {
@@ -543,6 +530,11 @@
       .topbar {
         grid-template-columns: 1fr;
         display: grid;
+      }
+
+      .topbar .status-strip,
+      .identity {
+        min-width: 0;
       }
 
       .schedule-row {
@@ -606,11 +598,29 @@
   <div class="toast-rail" id="toast_rail"></div>
   <main class="app">
     <header class="topbar">
-      <div class="title-block">
-        <p class="kicker">Vintage Story MOTD manager</p>
-        <h1>Schedule a daily welcome message rotation without babysitting it.</h1>
-        <p class="subtitle">Manage the run time, timezone, and message pool from one place. The updater fetches the current server config, changes only `WelcomeMessage`, and writes the full payload back.</p>
-      </div>
+      <section class="panel panel-alt status-strip">
+        <div class="status-lead">
+          <h2>Run status</h2>
+          <p>Recent activity and manual controls.</p>
+        </div>
+        <div class="status-meta">
+          <span>Last run</span>
+          <strong>{{ if .Settings.LastRunAt }}{{ .Settings.LastRunAt }}{{ else }}No run recorded yet.{{ end }}</strong>
+        </div>
+        <div class="status-meta">
+          <span>Last message</span>
+          <strong>{{ if .Settings.LastMessage }}{{ .Settings.LastMessage }}{{ else }}None yet.{{ end }}</strong>
+        </div>
+        <section class="status-strip-actions">
+          <form method="post" action="/run-now">
+            <button class="button-primary" type="submit">Run now</button>
+          </form>
+          <form method="post" action="/logout">
+            <button class="button-secondary" type="submit">Log out</button>
+          </form>
+        </section>
+      </section>
+
       <div class="identity">
         <div class="identity-copy">
           <div class="identity-label">Signed in</div>
@@ -624,29 +634,6 @@
         {{ end }}
       </div>
     </header>
-
-    <section class="panel panel-alt status-strip">
-      <div class="status-lead">
-        <h2>Run status</h2>
-        <p>Recent activity and manual controls.</p>
-      </div>
-      <div class="status-meta">
-        <span>Last run</span>
-        <strong>{{ if .Settings.LastRunAt }}{{ .Settings.LastRunAt }}{{ else }}No run recorded yet.{{ end }}</strong>
-      </div>
-      <div class="status-meta">
-        <span>Last message</span>
-        <strong>{{ if .Settings.LastMessage }}{{ .Settings.LastMessage }}{{ else }}None yet.{{ end }}</strong>
-      </div>
-      <section class="status-strip-actions">
-        <form method="post" action="/run-now">
-          <button class="button-primary" type="submit">Run now</button>
-        </form>
-        <form method="post" action="/logout">
-          <button class="button-secondary" type="submit">Log out</button>
-        </form>
-      </section>
-    </section>
 
     <section class="layout">
       <section class="panel">
@@ -719,9 +706,11 @@
       const storedUtcHour = {{ .Settings.Hour }};
       const storedUtcMinute = {{ .Settings.Minute }};
       const initialFlash = {{ if .Flash }}{{ printf "%q" .Flash }}{{ else }}''{{ end }};
-      let messages = {{ .MessagesJSON }};
+      let messages = normalizeMessages({{ .MessagesJSON }});
+      let pendingOperations = [];
       let saveTimer = null;
-      let saveCounter = 0;
+      let saveInFlight = false;
+      let needsResave = false;
       let activeToast = null;
       let toastTimer = null;
 
@@ -737,7 +726,9 @@
       });
 
       function syncMessages() {
-        hiddenMessages.value = messages.join('\n');
+        hiddenMessages.value = messages.map(function (message) {
+          return message.text;
+        }).join('\n');
       }
 
       function showToast(state, text, options) {
@@ -780,17 +771,25 @@
       }
 
       async function saveSettings() {
+        if (saveInFlight) {
+          needsResave = true;
+          return;
+        }
+
         if (messages.length === 0) {
           showToast('error', 'Add at least one welcome message.', { duration: 2600 });
           return;
         }
 
-        const requestID = ++saveCounter;
+        const operationsToSave = pendingOperations.slice();
         const payload = {
           scheduleTime: scheduleInput.value,
           browserTimezone: browserTimezoneInput.value,
-          messages: messages.slice()
+          operations: operationsToSave
         };
+
+        saveInFlight = true;
+        needsResave = false;
 
         try {
           const response = await fetch(settingsForm.action, {
@@ -811,14 +810,94 @@
             throw new Error(result.message || 'Could not save changes.');
           }
 
-          if (requestID === saveCounter) {
-            showToast('saved', result.message || 'Saved', { duration: 1400 });
-          }
+          pendingOperations = pendingOperations.slice(operationsToSave.length);
+          messages = applyOperations(normalizeMessages(result.settings && result.settings.messages), pendingOperations);
+          syncMessages();
+          renderMessages();
+          showToast('saved', result.message || 'Saved', { duration: 1400 });
         } catch (error) {
-          if (requestID === saveCounter) {
-            showToast('error', error.message || 'Could not save changes.', { duration: 2600 });
+          needsResave = true;
+          showToast('error', error.message || 'Could not save changes.', { duration: 2600 });
+        } finally {
+          saveInFlight = false;
+          if (needsResave || pendingOperations.length > 0) {
+            queueAutosave();
           }
         }
+      }
+
+      function normalizeMessages(nextMessages) {
+        if (!Array.isArray(nextMessages)) {
+          return [];
+        }
+
+        return nextMessages.map(function (message) {
+          return {
+            id: String(message.id || ''),
+            text: String(message.text || '').trim()
+          };
+        }).filter(function (message) {
+          return message.id && message.text;
+        });
+      }
+
+      function makeMessageID() {
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+          return window.crypto.randomUUID();
+        }
+
+        return 'msg-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+      }
+
+      function recordOperation(operation) {
+        pendingOperations.push(operation);
+        messages = applyOperation(messages, operation);
+        syncMessages();
+        renderMessages();
+        queueAutosave();
+      }
+
+      function applyOperation(messagesState, operation) {
+        const nextMessages = messagesState.map(function (message) {
+          return {
+            id: message.id,
+            text: message.text
+          };
+        });
+        const type = String(operation.type || '').toLowerCase();
+
+        if (type === 'delete') {
+          return nextMessages.filter(function (message) {
+            return message.id !== operation.id;
+          });
+        }
+
+        if ((type === 'add' || type === 'update') && operation.text) {
+          const existingIndex = nextMessages.findIndex(function (message) {
+            return message.id === operation.id;
+          });
+
+          if (existingIndex >= 0) {
+            nextMessages[existingIndex] = {
+              id: operation.id,
+              text: operation.text
+            };
+            return nextMessages;
+          }
+
+          return [{
+            id: operation.id,
+            text: operation.text
+          }].concat(nextMessages);
+        }
+
+        return nextMessages;
+      }
+
+      function applyOperations(baseMessages, operations) {
+        return operations.reduce(function (currentMessages, operation) {
+          return applyOperation(currentMessages, operation);
+        }, normalizeMessages(baseMessages));
       }
 
       function applyLocalSchedule() {
@@ -901,15 +980,15 @@
           const card = document.createElement('article');
           card.className = 'message-card';
 
-          const head = document.createElement('div');
-          head.className = 'message-card-head';
+          const row = document.createElement('div');
+          row.className = 'message-card-row';
 
           const cornerActions = document.createElement('div');
           cornerActions.className = 'card-corner-actions';
 
           const body = document.createElement('div');
           body.className = 'message-text';
-          body.textContent = message;
+          body.textContent = message.text;
 
           const editButton = document.createElement('button');
           editButton.type = 'button';
@@ -924,22 +1003,22 @@
           deleteButton.innerHTML = trashIcon();
 
           editButton.addEventListener('click', function () {
-            body.replaceWith(createEditor(message, index));
+            body.replaceWith(createEditor(message.text, index));
             cornerActions.replaceWith(createEditActions(index));
           });
 
           deleteButton.addEventListener('click', function () {
-            messages.splice(index, 1);
-            syncMessages();
-            renderMessages();
-            queueAutosave();
+            recordOperation({
+              type: 'delete',
+              id: message.id
+            });
           });
 
           cornerActions.appendChild(editButton);
           cornerActions.appendChild(deleteButton);
-          head.appendChild(cornerActions);
-          card.appendChild(head);
-          card.appendChild(body);
+          row.appendChild(body);
+          row.appendChild(cornerActions);
+          card.appendChild(row);
           messageList.appendChild(card);
         });
       }
@@ -980,10 +1059,11 @@
             return;
           }
 
-          messages[index] = nextValue;
-          syncMessages();
-          renderMessages();
-          queueAutosave();
+          recordOperation({
+            type: 'update',
+            id: messages[index].id,
+            text: nextValue
+          });
         });
 
         cancelButton.addEventListener('click', function () {
@@ -1022,12 +1102,13 @@
           return;
         }
 
-        messages.unshift(nextValue);
+        recordOperation({
+          type: 'add',
+          id: makeMessageID(),
+          text: nextValue
+        });
         messageInput.value = '';
-        syncMessages();
-        renderMessages();
         messageInput.focus();
-        queueAutosave();
       });
 
       messageInput.addEventListener('keydown', function (event) {
@@ -1041,6 +1122,7 @@
         event.preventDefault();
       });
 
+      syncMessages();
       renderMessages();
       if (initialFlash) {
         showToast('info', initialFlash, { duration: 2600 });
