@@ -160,10 +160,11 @@
     .status-strip {
       margin: 0 24px;
       display: grid;
-      grid-template-columns: minmax(180px, auto) repeat(2, minmax(220px, 1fr)) auto;
+      grid-template-columns: minmax(150px, auto) repeat(3, minmax(0, 1fr)) auto;
       align-items: center;
       gap: 0;
-      overflow: hidden;
+      overflow-x: auto;
+      overflow-y: hidden;
       padding: 0;
       border-radius: 16px;
       background:
@@ -231,6 +232,7 @@
       font-size: 0.86rem;
       line-height: 1.25;
       word-break: break-word;
+      overflow-wrap: anywhere;
     }
 
     .status-strip-actions {
@@ -568,12 +570,11 @@
       }
 
       .status-strip {
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: minmax(140px, auto) repeat(3, minmax(180px, 1fr)) auto;
       }
 
       .status-strip-actions {
-        grid-column: 1 / -1;
-        justify-content: flex-start;
+        justify-content: flex-end;
       }
 
       .identity {
@@ -613,7 +614,7 @@
       }
 
       .status-strip {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(140px, auto) repeat(3, minmax(160px, 1fr)) auto;
       }
 
       .toast-rail {
@@ -670,6 +671,10 @@
         <strong>{{ if .Settings.LastRunAt }}{{ .Settings.LastRunAt }}{{ else }}No run recorded yet.{{ end }}</strong>
       </div>
       <div class="status-meta">
+        <span>Next scheduled run</span>
+        <strong id="next_run_display" data-next-run-at="{{ .NextRunAt }}">{{ .NextRunAt }}</strong>
+      </div>
+      <div class="status-meta">
         <span>Last message</span>
         <strong>{{ if .Settings.LastMessage }}{{ .Settings.LastMessage }}{{ else }}None yet.{{ end }}</strong>
       </div>
@@ -724,8 +729,10 @@
       const settingsForm = hiddenMessages.form;
       const toastRail = document.getElementById('toast_rail');
       const detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
-      const storedUtcHour = {{ .Settings.Hour }};
-      const storedUtcMinute = {{ .Settings.Minute }};
+      const nextRunDisplay = document.getElementById('next_run_display');
+      const storedHour = {{ .Settings.Hour }};
+      const storedMinute = {{ .Settings.Minute }};
+      const storedTimezone = {{ printf "%q" .Settings.Timezone }};
       const initialFlash = {{ if .Flash }}{{ printf "%q" .Flash }}{{ else }}''{{ end }};
       let messages = normalizeMessages({{ .MessagesJSON }});
       let pendingOperations = [];
@@ -738,6 +745,7 @@
       browserTimezoneInput.value = detectedTimezone;
 
       applyLocalSchedule();
+      applyNextRunDisplay();
 
       document.querySelectorAll('[data-time]').forEach(function (button) {
         button.addEventListener('click', function () {
@@ -923,14 +931,38 @@
 
       function applyLocalSchedule() {
         if (!detectedTimezone) {
-          scheduleInput.value = formatTime(storedUtcHour, storedUtcMinute);
+          scheduleInput.value = formatTime(storedHour, storedMinute);
           if (timezoneHint) {
-            timezoneHint.textContent = 'Browser timezone could not be detected, so the saved UTC time is being shown.';
+            timezoneHint.textContent = 'Browser timezone could not be detected, so the saved schedule is being shown as stored.';
           }
           return;
         }
 
-        const utcDate = new Date(Date.UTC(2000, 0, 1, storedUtcHour, storedUtcMinute, 0));
+        if (!storedTimezone || storedTimezone === detectedTimezone) {
+          scheduleInput.value = formatTime(storedHour, storedMinute);
+          if (timezoneHint) {
+            timezoneHint.textContent = 'Scheduled daily in your local timezone: ' + detectedTimezone + '.';
+          }
+          return;
+        }
+
+        if (storedTimezone !== 'UTC') {
+          scheduleInput.value = formatTime(storedHour, storedMinute);
+          if (timezoneHint) {
+            timezoneHint.textContent = 'Stored schedule timezone: ' + storedTimezone + '. Save from this browser to switch it to ' + detectedTimezone + '.';
+          }
+          return;
+        }
+
+        const now = new Date();
+        const utcDate = new Date(Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          now.getUTCDate(),
+          storedHour,
+          storedMinute,
+          0
+        ));
         const parts = new Intl.DateTimeFormat('en-CA', {
           timeZone: detectedTimezone,
           hour: '2-digit',
@@ -953,8 +985,38 @@
         scheduleInput.value = localHour + ':' + localMinute;
 
         if (timezoneHint) {
-          timezoneHint.textContent = 'Shown in your local timezone: ' + detectedTimezone + '. Stored internally as ' + formatTime(storedUtcHour, storedUtcMinute) + ' UTC.';
+          timezoneHint.textContent = 'Shown in your local timezone: ' + detectedTimezone + '. Stored schedule timezone: ' + (storedTimezone || 'UTC') + '.';
         }
+      }
+
+      function applyNextRunDisplay() {
+        if (!nextRunDisplay) {
+          return;
+        }
+
+        const rawNextRunAt = nextRunDisplay.getAttribute('data-next-run-at');
+        if (!rawNextRunAt) {
+          nextRunDisplay.textContent = 'Not available.';
+          return;
+        }
+
+        const nextRunAt = new Date(rawNextRunAt);
+        if (Number.isNaN(nextRunAt.getTime())) {
+          nextRunDisplay.textContent = rawNextRunAt;
+          return;
+        }
+
+        const formatter = new Intl.DateTimeFormat(undefined, {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          second: '2-digit',
+          timeZoneName: 'short'
+        });
+
+        nextRunDisplay.textContent = formatter.format(nextRunAt);
       }
 
       function formatTime(hour, minute) {

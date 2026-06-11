@@ -53,13 +53,14 @@ type appConfig struct {
 }
 
 type settings struct {
-	Hour           int         `json:"hour"`
-	Minute         int         `json:"minute"`
-	Timezone       string      `json:"timezone"`
-	Messages       messageList `json:"messages"`
-	RecentMessages []string    `json:"recentMessages,omitempty"`
-	LastRunAt      string      `json:"lastRunAt,omitempty"`
-	LastMessage    string      `json:"lastMessage,omitempty"`
+	Hour                int         `json:"hour"`
+	Minute              int         `json:"minute"`
+	Timezone            string      `json:"timezone"`
+	Messages            messageList `json:"messages"`
+	RecentMessages      []string    `json:"recentMessages,omitempty"`
+	LastRunAt           string      `json:"lastRunAt,omitempty"`
+	LastMessage         string      `json:"lastMessage,omitempty"`
+	LastScheduledRunAt  string      `json:"lastScheduledRunAt,omitempty"`
 }
 
 type messageEntry struct {
@@ -117,6 +118,7 @@ type dashboardData struct {
 	MessagesJSON template.JS
 	AllowedUsers []string
 	Flash        string
+	NextRunAt    string
 }
 
 type settingsSaveRequest struct {
@@ -283,7 +285,6 @@ func newSettingsStore(path string) (*settingsStore, error) {
 		return nil, err
 	}
 
-	store.migrateLegacyScheduleLocked()
 	store.normalizeLocked()
 	return store, nil
 }
@@ -302,13 +303,13 @@ func (s *settingsStore) update(next settings) error {
 	return s.saveLocked()
 }
 
-func (s *settingsStore) applySave(utcHour, utcMinute int, operations []settingsSaveOperation) (settings, error) {
+func (s *settingsStore) applySave(hour, minute int, timezone string, operations []settingsSaveOperation) (settings, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.data.Hour = utcHour
-	s.data.Minute = utcMinute
-	s.data.Timezone = "UTC"
+	s.data.Hour = hour
+	s.data.Minute = minute
+	s.data.Timezone = strings.TrimSpace(timezone)
 
 	for _, op := range operations {
 		s.applyMessageOperationLocked(op)
@@ -322,11 +323,14 @@ func (s *settingsStore) applySave(utcHour, utcMinute int, operations []settingsS
 	return cloneSettings(s.data), nil
 }
 
-func (s *settingsStore) recordRun(ts time.Time, message string) error {
+func (s *settingsStore) recordRun(ts time.Time, message string, scheduledAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.data.LastRunAt = ts.Format(time.RFC3339)
 	s.data.LastMessage = message
+	if !scheduledAt.IsZero() {
+		s.data.LastScheduledRunAt = scheduledAt.Format(time.RFC3339)
+	}
 	s.data.RecentMessages = append([]string{message}, s.data.RecentMessages...)
 	if len(s.data.RecentMessages) > 5 {
 		s.data.RecentMessages = s.data.RecentMessages[:5]
@@ -342,6 +346,9 @@ func (s *settingsStore) normalizeLocked() {
 		s.data.Minute = 0
 	}
 	if strings.TrimSpace(s.data.Timezone) == "" {
+		s.data.Timezone = "UTC"
+	}
+	if _, err := loadScheduleLocation(s.data.Timezone); err != nil {
 		s.data.Timezone = "UTC"
 	}
 
@@ -386,22 +393,6 @@ func (s *settingsStore) normalizeLocked() {
 		}
 	}
 	s.data.RecentMessages = recent
-}
-
-func (s *settingsStore) migrateLegacyScheduleLocked() {
-	legacyTZ := strings.TrimSpace(s.data.Timezone)
-	if legacyTZ == "" || strings.EqualFold(legacyTZ, "UTC") {
-		return
-	}
-
-	utcHour, utcMinute, err := convertLocalScheduleToUTC(s.data.Hour, s.data.Minute, legacyTZ)
-	if err != nil {
-		return
-	}
-
-	s.data.Hour = utcHour
-	s.data.Minute = utcMinute
-	s.data.Timezone = "UTC"
 }
 
 func (s *settingsStore) saveLocked() error {
@@ -496,13 +487,17 @@ func (s *scheduler) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-timer.C:
-			next := s.nextRunFrom(time.Now())
-			wait := time.Until(next)
-			if wait < time.Second {
-				if err := s.execute(ctx); err != nil {
+			now := time.Now()
+			scheduledAt := s.lastScheduledTimeFrom(now)
+			wait := time.Until(s.nextRunFrom(now))
+			if s.shouldRunScheduled(now, scheduledAt) {
+				if err := s.execute(ctx, scheduledAt); err != nil {
 					s.logger.Printf("scheduled run failed: %v", err)
 				}
 				wait = time.Until(s.nextRunFrom(time.Now().Add(time.Second)))
+			}
+			if wait < time.Second {
+				wait = time.Second
 			}
 			timer.Reset(wait)
 		}
@@ -511,15 +506,60 @@ func (s *scheduler) run(ctx context.Context) {
 
 func (s *scheduler) nextRunFrom(now time.Time) time.Time {
 	cfg := s.store.get()
-	utcNow := now.UTC()
-	next := time.Date(utcNow.Year(), utcNow.Month(), utcNow.Day(), cfg.Hour, cfg.Minute, 0, 0, time.UTC)
-	if !next.After(utcNow) {
-		next = next.Add(24 * time.Hour)
+	loc, err := loadScheduleLocation(cfg.Timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	localNow := now.In(loc)
+	next := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), cfg.Hour, cfg.Minute, 0, 0, loc)
+	if !next.After(localNow) {
+		next = next.AddDate(0, 0, 1)
 	}
 	return next
 }
 
-func (s *scheduler) execute(ctx context.Context) error {
+func (s *scheduler) lastScheduledTimeFrom(now time.Time) time.Time {
+	cfg := s.store.get()
+	loc, err := loadScheduleLocation(cfg.Timezone)
+	if err != nil {
+		loc = time.UTC
+	}
+	localNow := now.In(loc)
+	last := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), cfg.Hour, cfg.Minute, 0, 0, loc)
+	if last.After(localNow) {
+		last = last.AddDate(0, 0, -1)
+	}
+	return last
+}
+
+func (s *scheduler) shouldRunScheduled(now, scheduledAt time.Time) bool {
+	if scheduledAt.IsZero() || scheduledAt.After(now) {
+		return false
+	}
+
+	lastScheduledRunAt, ok := s.lastScheduledRunAt()
+	if !ok {
+		return true
+	}
+
+	return lastScheduledRunAt.Before(scheduledAt)
+}
+
+func (s *scheduler) lastScheduledRunAt() (time.Time, bool) {
+	cfg := s.store.get()
+	if strings.TrimSpace(cfg.LastScheduledRunAt) == "" {
+		return time.Time{}, false
+	}
+
+	lastScheduledRunAt, err := time.Parse(time.RFC3339, cfg.LastScheduledRunAt)
+	if err != nil {
+		return time.Time{}, false
+	}
+
+	return lastScheduledRunAt, true
+}
+
+func (s *scheduler) execute(ctx context.Context, scheduledAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -533,7 +573,7 @@ func (s *scheduler) execute(ctx context.Context) error {
 		return err
 	}
 
-	return s.store.recordRun(time.Now(), message)
+	return s.store.recordRun(time.Now(), message, scheduledAt)
 }
 
 func pickRandomMessage(messages messageList, recent []string) (string, error) {
@@ -679,6 +719,7 @@ func (a *app) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		MessagesJSON: template.JS(messagesJSON),
 		AllowedUsers: ids,
 		Flash:        r.URL.Query().Get("flash"),
+		NextRunAt:    a.scheduler.nextRunFrom(time.Now()).Format(time.RFC3339),
 	}
 	a.renderTemplate(w, "dashboard.html", data)
 }
@@ -821,8 +862,7 @@ func (a *app) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utcHour, utcMinute, err := convertLocalScheduleToUTC(hour, minute, browserTimezone)
-	if err != nil {
+	if _, err := loadScheduleLocation(browserTimezone); err != nil {
 		writeJSON(w, http.StatusBadRequest, settingsSaveResponse{
 			OK:      false,
 			Message: "invalid browser timezone",
@@ -830,7 +870,7 @@ func (a *app) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	currentSettings, err := a.store.applySave(utcHour, utcMinute, req.Operations)
+	currentSettings, err := a.store.applySave(hour, minute, browserTimezone, req.Operations)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, settingsSaveResponse{
 			OK:      false,
@@ -855,7 +895,7 @@ func (a *app) handleRunNow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.scheduler.execute(r.Context()); err != nil {
+	if err := a.scheduler.execute(r.Context(), time.Time{}); err != nil {
 		http.Redirect(w, r, "/?flash="+url.QueryEscape("Manual run failed: "+err.Error()), http.StatusFound)
 		return
 	}
@@ -1006,13 +1046,10 @@ func parseScheduleTime(raw string) (int, int, error) {
 	return 0, 0, errors.New("time must be HH:MM, HH:MM:SS, or include AM/PM")
 }
 
-func convertLocalScheduleToUTC(hour, minute int, timezone string) (int, int, error) {
+func loadScheduleLocation(timezone string) (*time.Location, error) {
 	loc, err := time.LoadLocation(strings.TrimSpace(timezone))
 	if err != nil {
-		return 0, 0, err
+		return nil, err
 	}
-
-	localTime := time.Date(2000, time.January, 1, hour, minute, 0, 0, loc)
-	utcTime := localTime.UTC()
-	return utcTime.Hour(), utcTime.Minute(), nil
+	return loc, nil
 }
