@@ -124,12 +124,14 @@ type dashboardData struct {
 type settingsSaveRequest struct {
 	ScheduleTime    string                  `json:"scheduleTime"`
 	BrowserTimezone string                  `json:"browserTimezone"`
+	ScheduleChanged bool                    `json:"scheduleChanged"`
 	Operations      []settingsSaveOperation `json:"operations"`
 }
 
 type settingsSaveResponse struct {
 	OK       bool     `json:"ok"`
 	Message  string   `json:"message,omitempty"`
+	NextRunAt string  `json:"nextRunAt,omitempty"`
 	Settings settings `json:"settings"`
 }
 
@@ -303,13 +305,15 @@ func (s *settingsStore) update(next settings) error {
 	return s.saveLocked()
 }
 
-func (s *settingsStore) applySave(hour, minute int, timezone string, operations []settingsSaveOperation) (settings, error) {
+func (s *settingsStore) applySave(scheduleChanged bool, hour, minute int, timezone string, operations []settingsSaveOperation) (settings, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.data.Hour = hour
-	s.data.Minute = minute
-	s.data.Timezone = strings.TrimSpace(timezone)
+	if scheduleChanged {
+		s.data.Hour = hour
+		s.data.Minute = minute
+		s.data.Timezone = strings.TrimSpace(timezone)
+	}
 
 	for _, op := range operations {
 		s.applyMessageOperationLocked(op)
@@ -845,32 +849,37 @@ func (a *app) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hour, minute, err := parseScheduleTime(req.ScheduleTime)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, settingsSaveResponse{
-			OK:      false,
-			Message: "invalid schedule time",
-		})
-		return
-	}
-	browserTimezone := strings.TrimSpace(req.BrowserTimezone)
-	if browserTimezone == "" {
-		writeJSON(w, http.StatusBadRequest, settingsSaveResponse{
-			OK:      false,
-			Message: "browser timezone is required",
-		})
-		return
+	hour, minute := 0, 0
+	browserTimezone := ""
+	if req.ScheduleChanged {
+		var err error
+		hour, minute, err = parseScheduleTime(req.ScheduleTime)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, settingsSaveResponse{
+				OK:      false,
+				Message: "invalid schedule time",
+			})
+			return
+		}
+		browserTimezone = strings.TrimSpace(req.BrowserTimezone)
+		if browserTimezone == "" {
+			writeJSON(w, http.StatusBadRequest, settingsSaveResponse{
+				OK:      false,
+				Message: "browser timezone is required",
+			})
+			return
+		}
+
+		if _, err := loadScheduleLocation(browserTimezone); err != nil {
+			writeJSON(w, http.StatusBadRequest, settingsSaveResponse{
+				OK:      false,
+				Message: "invalid browser timezone",
+			})
+			return
+		}
 	}
 
-	if _, err := loadScheduleLocation(browserTimezone); err != nil {
-		writeJSON(w, http.StatusBadRequest, settingsSaveResponse{
-			OK:      false,
-			Message: "invalid browser timezone",
-		})
-		return
-	}
-
-	currentSettings, err := a.store.applySave(hour, minute, browserTimezone, req.Operations)
+	currentSettings, err := a.store.applySave(req.ScheduleChanged, hour, minute, browserTimezone, req.Operations)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, settingsSaveResponse{
 			OK:      false,
@@ -882,6 +891,7 @@ func (a *app) handleSettingsSave(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, settingsSaveResponse{
 		OK:       true,
 		Message:  "saved",
+		NextRunAt: a.scheduler.nextRunFrom(time.Now()).Format(time.RFC3339),
 		Settings: currentSettings,
 	})
 }

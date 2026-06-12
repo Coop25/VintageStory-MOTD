@@ -668,7 +668,7 @@
       </div>
       <div class="status-meta">
         <span>Last run</span>
-        <strong>{{ if .Settings.LastRunAt }}{{ .Settings.LastRunAt }}{{ else }}No run recorded yet.{{ end }}</strong>
+        <strong id="last_run_display"{{ if .Settings.LastRunAt }} data-last-run-at="{{ .Settings.LastRunAt }}"{{ end }}>{{ if .Settings.LastRunAt }}{{ .Settings.LastRunAt }}{{ else }}No run recorded yet.{{ end }}</strong>
       </div>
       <div class="status-meta">
         <span>Next scheduled run</span>
@@ -729,22 +729,25 @@
       const settingsForm = hiddenMessages.form;
       const toastRail = document.getElementById('toast_rail');
       const detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+      const lastRunDisplay = document.getElementById('last_run_display');
       const nextRunDisplay = document.getElementById('next_run_display');
-      const storedHour = {{ .Settings.Hour }};
-      const storedMinute = {{ .Settings.Minute }};
-      const storedTimezone = {{ printf "%q" .Settings.Timezone }};
+      let storedHour = {{ .Settings.Hour }};
+      let storedMinute = {{ .Settings.Minute }};
+      let storedTimezone = {{ printf "%q" .Settings.Timezone }};
       const initialFlash = {{ if .Flash }}{{ printf "%q" .Flash }}{{ else }}''{{ end }};
       let messages = normalizeMessages({{ .MessagesJSON }});
       let pendingOperations = [];
       let saveTimer = null;
       let saveInFlight = false;
       let needsResave = false;
+      let scheduleDirty = false;
       let activeToast = null;
       let toastTimer = null;
 
       browserTimezoneInput.value = detectedTimezone;
 
       applyLocalSchedule();
+      applyLastRunDisplay();
       applyNextRunDisplay();
 
       document.querySelectorAll('[data-time]').forEach(function (button) {
@@ -812,10 +815,13 @@
 
         const operationsToSave = pendingOperations.slice();
         const payload = {
-          scheduleTime: scheduleInput.value,
-          browserTimezone: browserTimezoneInput.value,
+          scheduleChanged: scheduleDirty,
           operations: operationsToSave
         };
+        if (scheduleDirty) {
+          payload.scheduleTime = scheduleInput.value;
+          payload.browserTimezone = browserTimezoneInput.value;
+        }
 
         saveInFlight = true;
         needsResave = false;
@@ -840,6 +846,7 @@
           }
 
           pendingOperations = pendingOperations.slice(operationsToSave.length);
+          syncSettingsState(result.settings, result.nextRunAt);
           messages = applyOperations(normalizeMessages(result.settings && result.settings.messages), pendingOperations);
           syncMessages();
           renderMessages();
@@ -1019,15 +1026,77 @@
         nextRunDisplay.textContent = formatter.format(nextRunAt);
       }
 
+      function applyLastRunDisplay() {
+        if (!lastRunDisplay) {
+          return;
+        }
+
+        const rawLastRunAt = lastRunDisplay.getAttribute('data-last-run-at');
+        if (!rawLastRunAt) {
+          lastRunDisplay.textContent = 'No run recorded yet.';
+          return;
+        }
+
+        const lastRunAt = new Date(rawLastRunAt);
+        if (Number.isNaN(lastRunAt.getTime())) {
+          lastRunDisplay.textContent = rawLastRunAt;
+          return;
+        }
+
+        const formatter = new Intl.DateTimeFormat(undefined, {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          second: '2-digit',
+          timeZoneName: 'short'
+        });
+
+        lastRunDisplay.textContent = formatter.format(lastRunAt);
+      }
+
+      function syncSettingsState(nextSettings, nextRunAt) {
+        if (!nextSettings) {
+          return;
+        }
+
+        storedHour = Number(nextSettings.hour);
+        storedMinute = Number(nextSettings.minute);
+        storedTimezone = String(nextSettings.timezone || '');
+        scheduleDirty = false;
+        applyLocalSchedule();
+
+        if (lastRunDisplay) {
+          if (nextSettings.lastRunAt) {
+            lastRunDisplay.setAttribute('data-last-run-at', nextSettings.lastRunAt);
+          } else {
+            lastRunDisplay.removeAttribute('data-last-run-at');
+          }
+        }
+        applyLastRunDisplay();
+
+        if (nextRunDisplay) {
+          if (nextRunAt) {
+            nextRunDisplay.setAttribute('data-next-run-at', nextRunAt);
+          } else {
+            nextRunDisplay.removeAttribute('data-next-run-at');
+          }
+        }
+        applyNextRunDisplay();
+      }
+
       function formatTime(hour, minute) {
         return String(hour).padStart(2, '0') + ':' + String(minute).padStart(2, '0');
       }
 
       scheduleInput.addEventListener('change', function () {
+        scheduleDirty = true;
         queueAutosave();
       });
 
       scheduleInput.addEventListener('input', function () {
+        scheduleDirty = true;
         queueAutosave();
       });
 
